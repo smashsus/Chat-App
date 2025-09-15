@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Solana Vanity Generator (Worker)</title>
+  <script src="https://unpkg.com/@solana/web3.js@1.87.3/lib/index.iife.min.js"></script>
+  <style>
+    body { font-family: monospace; background: #111; color: #eee; }
+    input, button { padding: 8px; margin: 5px; border-radius: 6px; }
+    #log, #found { max-height: 200px; overflow-y: auto; background: #222; padding: 10px; border-radius: 6px; margin-top: 10px; }
+    #found { background: #1b3; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h2>⚡ Solana Vanity Address Generator</h2>
+  Prefix: <input id="prefix" placeholder="So" />
+  <button onclick="startGen()">Start</button>
+  <button onclick="stopGen()">Stop</button>
+
+  <div>Attempts: <span id="attempts">0</span> | Found: <span id="foundCount">0</span></div>
+
+  <h3>🔑 Found Keys</h3>
+  <div id="found"></div>
+
+  <h3>📜 Log</h3>
+  <div id="log"></div>
+
+  <script>
+    let worker;
+    let attempts = 0, found = 0;
+
+    function log(msg) {
+      const logDiv = document.getElementById('log');
+      logDiv.innerHTML = msg + "<br>" + logDiv.innerHTML;
+    }
+    function logFound(pub, priv) {
+      const foundDiv = document.getElementById('found');
+      foundDiv.innerHTML = `<div>🟢 ${pub}<br>🔑 ${priv}</div>` + foundDiv.innerHTML;
+    }
+    function updateStats() {
+      document.getElementById('attempts').innerText = attempts;
+      document.getElementById('foundCount').innerText = found;
+    }
+
+    function startGen() {
+      if (worker) return;
+      const prefix = document.getElementById('prefix').value || "So";
+
+      const workerCode = `
+        self.importScripts("https://unpkg.com/@solana/web3.js@1.87.3/lib/index.iife.min.js");
+        function toHex(arr){return Array.from(arr).map(b=>b.toString(16).padStart(2,'0')).join('');}
+        self.onmessage = e=>{
+          const prefix = e.data;
+          let attempts = 0;
+          function loop(){
+            for(let i=0;i<500;i++){
+              const kp = solanaWeb3.Keypair.generate();
+              const pub = kp.publicKey.toBase58();
+              const priv = toHex(kp.secretKey);
+              attempts++;
+              if(pub.startsWith(prefix)){
+                self.postMessage({found:true,pub,priv,attempts});
+              }
+            }
+            self.postMessage({found:false,attempts});
+            setTimeout(loop,1);
+          }
+          loop();
+        }
+      `;
+
+      const blob = new Blob([workerCode], {type: "application/javascript"});
+      worker = new Worker(URL.createObjectURL(blob));
+
+      worker.onmessage = (e) => {
+        if (e.data.found) {
+          found++;
+          logFound(e.data.pub, e.data.priv);
+        }
+        attempts = e.data.attempts;
+        updateStats();
+      };
+
+      log("🚀 Started searching for prefix: " + prefix);
+      worker.postMessage(prefix);
+    }
+
+    function stopGen() {
+      if (worker) {
+        worker.terminate();
+        worker = null;
+        log("⛔ Stopped.");
+      }
+    }
+  </script>
+</body>
+</html>
